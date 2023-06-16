@@ -7,7 +7,7 @@ This script for initial config on fresh server.
 ### Ubuntu
 
 ```
-wget https://raw.githubusercontent.com/ahmad4fifz/server-init/main/ubuntu.sh -O /tmp/ubuntu.sh
+wget -P /tmp https://raw.githubusercontent.com/ahmad4fifz/server-init/main/ubuntu.sh
 sudo bash /tmp/ubuntu.sh
 ```
 
