@@ -79,20 +79,20 @@ display_ascii() {
 }
 
 dis_ipv6() {
-	if [ $VER = "16.04" ];then
+	if [[ $VER = "16.04" ]];then
 		# ubuntu 16 disable
 		echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
 		echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
 		echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
 		sysctl -p
-	elif [ $VER = "18.04" || $VER = "20.04" ];then
+	elif [[ $VER = "18.04" ]] || [[ $VER = "20.04" ]];then
 		# ubuntu 18,20 disable
 		sed -i -e 's/GRUB_CMDLINE_LINUX=""/GRUB_CMDLINE_LINUX="ipv6.disable=1"/' /etc/default/grub
 		update-grub
-	elif [ $VER = "22.04" ];then
+	elif [[ $VER = "22.04" ]];then
 		# ubuntu 22 disable
 		sed -i -e 's/GRUB_CMDLINE_LINUX=""/GRUB_CMDLINE_LINUX="ipv6.disable=1"/' /etc/default/grub
-        update-grub
+        	update-grub
 		install_service net-tools
 	else
 		echo "[!] Your ubuntu version is #{$VER} not supported"
