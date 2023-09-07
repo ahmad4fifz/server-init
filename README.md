@@ -2,7 +2,7 @@
 
 This script for initial config on fresh server.
 
-## How to run
+## Usage
 
 ### Ubuntu
 
