@@ -6,7 +6,7 @@ This script for initial config on fresh server.
 
 ### Ubuntu
 
-```
+```bash
 sudo bash <(curl -s https://raw.githubusercontent.com/ahmad4fifz/server-init/main/ubuntu.sh)
 ```
 
