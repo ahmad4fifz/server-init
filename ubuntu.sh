@@ -110,16 +110,16 @@ get_confirmation_ipv6_disable() {
 	fi
 }
 
-enable_ufw() {
-	install_service ufw
-	echo "[+] Configure ufw..."
-	ufw allow 22
-	ufw --force enable
-	echo "[++] To allow other port please used command : ufw allow [PORT] "
-	echo "[++] Example allow port 80 : ufw allow 80"
-	echo " "
-	sleep 5
-}
+# enable_ufw() {
+# 	install_service ufw
+# 	echo "[+] Configure ufw..."
+# 	ufw allow 22
+# 	ufw --force enable
+# 	echo "[++] To allow other port please used command : ufw allow [PORT] "
+# 	echo "[++] Example allow port 80 : ufw allow 80"
+# 	echo " "
+# 	sleep 5
+# }
 
 ufw_support() {
 	if (whiptail --title "Firewall" --yesno "Enable firewall (ufw) on this server ?" 8 78)
@@ -162,7 +162,7 @@ main() {
 	get_confirmation_ipv6_disable
 
 	#configure ufw
-	ufw_support
+	# ufw_support
 
 	# reconfigure date
 	reconfig_date
