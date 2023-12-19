@@ -19,6 +19,19 @@ check_version() {
 	fi
 }
 
+## chatgpt
+# check_version() {
+# 	case $VER in
+# 		"16.04" | "18.04" | "20.04" | "22.04")
+# 			echo "[+] Ubuntu $VER detected"
+# 			;;
+# 		*)
+# 			echo "[!] This Ubuntu $VER not supported"
+# 			exit 1
+# 			;;
+#	esac
+#}
+
 update_repo() {
 	apt update
 }
