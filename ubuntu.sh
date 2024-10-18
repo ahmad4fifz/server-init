@@ -1,188 +1,203 @@
 #!/bin/bash
 set -euo pipefail
 
-# Get Ubuntu version and current date
+LOG_FILE="/var/log/system_hardening.log"
 VER=$(lsb_release -rs)
 DATE=$(date)
+DRY_RUN=false
 
-# Function to check supported Ubuntu version
+trap 'echo "[!] Error on line $LINENO"; exit 1' ERR
+trap 'echo "[+] Cleaning up resources..."; # add clean-up code here' EXIT
+
+# Log function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+# Backup function
+backup_file() {
+    local file="$1"
+    if [[ -f "$file" ]]; then
+        cp "$file" "${file}.bak.$(date +%F_%T)"
+        log "[+] Backed up $file to ${file}.bak.$(date +%F_%T)"
+    fi
+}
+
+# Dry-run log function
+dry_run_log() {
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] $1"
+    else
+        log "$1"
+        eval "$1"
+    fi
+}
+
+# Check Ubuntu version
 check_version() {
-	case $VER in
-		"16.04" | "18.04" | "20.04" | "22.04" | "24.01")
-			echo "[+] Ubuntu $VER detected"
-			;;
-		*)
-			echo "[!] This Ubuntu version $VER is not supported"
-			exit 1
-			;;
-	esac
+    case $VER in
+        "16.04" | "18.04" | "20.04" | "22.04" | "24.01")
+            log "[+] Ubuntu $VER detected"
+            ;;
+        *)
+            log "[!] This Ubuntu version $VER is not supported"
+            exit 1
+            ;;
+    esac
 }
 
-# Function to update repositories
+# Disable IPv6
+dis_ipv6() {
+    case $VER in
+        "16.04")
+            backup_file /etc/sysctl.conf
+            dry_run_log "echo 'net.ipv6.conf.all.disable_ipv6 = 1' >> /etc/sysctl.conf"
+            dry_run_log "echo 'net.ipv6.conf.default.disable_ipv6 = 1' >> /etc/sysctl.conf"
+            dry_run_log "echo 'net.ipv6.conf.lo.disable_ipv6 = 1' >> /etc/sysctl.conf"
+            dry_run_log "sysctl -p"
+            ;;
+        "18.04" | "20.04" | "22.04" | "24.01")
+            backup_file /etc/default/grub
+            dry_run_log "sed -i -e 's/GRUB_CMDLINE_LINUX=\"\"/GRUB_CMDLINE_LINUX=\"ipv6.disable=1\"/' /etc/default/grub"
+            dry_run_log "update-grub"
+            ;;
+        *)
+            log "[!] Unsupported version $VER for disabling IPv6"
+            exit 1
+            ;;
+    esac
+}
+
+# Update repository with a timeout
 update_repo() {
-	apt update
+    dry_run_log "timeout 300 apt-get update"
 }
 
-# Function to upgrade installed packages
+# Upgrade repository with a timeout
 upgrade_repo() {
-	apt upgrade -y
+    dry_run_log "timeout 300 apt-get upgrade -y"
 }
 
-# Function to remove unused packages
+# Autoremove unused packages
 autoremove_repo() {
-	apt autoremove -y
+    dry_run_log "timeout 300 apt-get autoremove -y"
 }
 
-# Function to install a service
+# Install services with backup
 install_service() {
-	apt -yq install "$1"
+    dry_run_log "apt-get -yq install $1"
 }
 
-# Check for root privileges, network connectivity, and dependencies
+# Check for network interface
+check_network_interface() {
+    if ifconfig | grep "inet" > /dev/null; then
+        log "[+] Network interface is up"
+    else
+        log "[!] No active network interface found"
+        exit 1
+    fi
+}
+
+# Check dependencies and network
 check_dependency() {
-	# Check if script is run as root
-	if [[ $EUID -ne 0 ]]; then
-	   echo "[!] This script must be run as root"
-	   exit 1
-	fi
+    # check root
+    if [[ $EUID -ne 0 ]]; then
+       log "[!] This script must be run as root"
+       exit 1
+    fi
 
-	# Check network status (Internet and DNS)
-	if ping -q -c 3 -W 1 www.google.com > /dev/null 2>&1; then
-		echo "[+] Network connection is OK"
-	else
-		if ping -q -c 3 -W 1 8.8.8.8 > /dev/null 2>&1; then
-			echo "[!] Check your DNS settings"
-			exit 1
-		else
-			echo "[!] Check your NETWORK settings"
-			exit 1
-		fi
-	fi
+    # check network interface
+    check_network_interface
 
-	# Check if whiptail is installed, otherwise install it
-	if ! which whiptail > /dev/null 2>&1; then
-		echo "[+] Installing whiptail..."
-		install_service whiptail
-	else
-		echo "[+] whiptail is already installed"
-	fi
+    # check network status (internet and DNS)
+    if ping -q -c 3 -W 1 www.google.com > /dev/null 2>&1; then
+        log "[+] Checking network OK"
+    else
+        if ping -q -c 3 -W 1 8.8.8.8 > /dev/null 2>&1; then
+            log "[!] Check your DNS settings"
+            exit $?
+        else
+            log "[!] Check your NETWORK settings"
+            exit $?
+        fi
+    fi
+
+    # check whiptail
+    if which whiptail > /dev/null 2>&1; then
+        log "[+] Checking whiptail OK"
+    else
+        install_service whiptail
+    fi
 }
 
-# Function to display ASCII art
+# Confirmation to disable IPv6
+get_confirmation_ipv6_disable() {
+    if (whiptail --title "IPv6" --yesno "This script will disable IPv6. Do you agree?" 8 78); then
+        log "[+] Disabling IPv6..."
+        dis_ipv6
+    fi
+}
+
+# Reconfigure date
+reconfig_date() {
+    if (whiptail --title "Date" --yesno "The current date is $DATE. Is it correct?" 8 78); then
+        :
+    else
+        log "[+] Reconfiguring date..."
+        dry_run_log "dpkg-reconfigure tzdata"
+    fi
+}
+
+# Reboot confirmation with timeout
+cmd_reboot() {
+    whiptail --title "Rebooting..." --msgbox "This server will reboot in 5 seconds. If you're connected via SSH, please reconnect after the reboot." 8 78
+    log "[+] Rebooting system in 5 seconds..."
+    sleep 5
+    dry_run_log "timeout 30 reboot"
+}
+
+# Main display
 display_ascii() {
-	echo -e '
-		
+    echo -e '
+        
     ░██████╗███████╗██████╗░██╗░░░██╗███████╗██████╗░░░░░░░██╗███╗░░██╗██╗████████╗
     ██╔════╝██╔════╝██╔══██╗██║░░░██║██╔════╝██╔══██╗░░░░░░██║████╗░██║██║╚══██╔══╝
     ╚█████╗░█████╗░░██████╔╝╚██╗░██╔╝█████╗░░██████╔╝█████╗██║██╔██╗██║██║░░░██║░░░
     ░╚═══██╗██╔══╝░░██╔══██╗░╚████╔╝░██╔══╝░░██╔══██╗╚════╝██║██║╚████║██║░░░██║░░░
     ██████╔╝███████╗██║░░██║░░╚██╔╝░░███████╗██║░░██║░░░░░░██║██║░╚███║██║░░░██║░░░
     ╚═════╝░╚══════╝╚═╝░░╚═╝░░░╚═╝░░░╚══════╝╚═╝░░╚═╝░░░░░░╚═╝╚═╝░░╚══╝╚═╝░░░╚═╝░░░                                              
-	'
-	sleep 3
+    '
+    sleep 3
 }
 
-# Function to disable IPv6
-dis_ipv6() {
-	case $VER in
-		"16.04")
-			# Disable IPv6 on Ubuntu 16.04
-			echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
-			echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
-			echo "net.ipv6.conf.lo.disable_ipv6 = 1" >> /etc/sysctl.conf
-			sysctl -p
-			;;
-		"18.04" | "20.04" | "22.04" | "24.01")
-			# Disable IPv6 on Ubuntu 18.04, 20.04, 22.04, and 24.01
-			sed -i -e 's/GRUB_CMDLINE_LINUX=""/GRUB_CMDLINE_LINUX="ipv6.disable=1"/' /etc/default/grub
-			update-grub
-			install_service net-tools  # Install net-tools if needed (for ifconfig, etc.)
-			;;
-		*)
-			echo "[!] Your Ubuntu version $VER is not supported for IPv6 disabling"
-			exit 1
-			;;
-	esac
-}
-
-# Function to get confirmation to disable IPv6
-get_confirmation_ipv6_disable() {
-	if (whiptail --title "IPv6" --yesno "This script will disable IPv6. Do you agree?" 8 78); then
-		echo "[+] Disabling IPv6..."
-		dis_ipv6
-	else
-		echo "[!] IPv6 disabling was canceled."
-	fi
-}
-
-# Function to enable and configure UFW (optional)
-# enable_ufw() {
-# 	install_service ufw
-# 	echo "[+] Configuring UFW..."
-# 	ufw allow 22
-# 	ufw --force enable
-# 	echo "[++] To allow other ports, use: ufw allow [PORT]"
-# 	echo "[++] Example to allow port 80: ufw allow 80"
-# 	sleep 5
-# }
-
-# Function to prompt user to enable UFW (optional)
-ufw_support() {
-	if (whiptail --title "Firewall" --yesno "Enable firewall (UFW) on this server?" 8 78); then
-		echo "[+] Enabling UFW..."
-		enable_ufw
-	else
-		echo "[!] UFW setup was skipped."
-	fi	
-}
-
-# Function to prompt for date reconfiguration
-reconfig_date() {
-	if (whiptail --title "Date" --yesno "The current date is $DATE. Is it correct?" 8 78); then
-		echo "[+] Date confirmed as correct."
-	else
-		echo "[+] Reconfiguring date..."
-		dpkg-reconfigure tzdata
-	fi
-}
-
-# Function to reboot the server with a warning
-cmd_reboot() {
-	whiptail --title "Rebooting..." --msgbox "The server will reboot in 5 seconds." 8 78
-	sleep 5
-	reboot
-}
-
-# Main function to run all tasks
+# Run main function
 main() {
-	# Display ASCII art
-	display_ascii
+    display_ascii
 
-	# Check Ubuntu version
-	check_version
+    check_version
 
-	# Check script dependencies
-	check_dependency
+    check_dependency
 
-	# Get confirmation for disabling IPv6
-	get_confirmation_ipv6_disable
+    get_confirmation_ipv6_disable
 
-	# Optionally configure UFW (commented out by default)
-	# ufw_support
+    reconfig_date
 
-	# Reconfigure date if needed
-	reconfig_date
+    update_repo
 
-	# Update and upgrade repositories
-	update_repo
-	upgrade_repo
+    upgrade_repo
 
-	# Clean up unused packages
-	autoremove_repo
+    autoremove_repo
 
-	# Reboot the server
-	cmd_reboot
+    cmd_reboot
 }
 
-# Call the main function
+# Optional dry-run mode
+for arg in "$@"; do
+    case $arg in
+        --dry-run)
+            DRY_RUN=true
+            ;;
+    esac
+done
+
 main
